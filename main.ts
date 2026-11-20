@@ -1,48 +1,51 @@
-/**
- * gta6-meme-x-01 entry program (Node 22, stdlib only, no network).
- *
- * The meme itself is the post on X (made by the agent, posted by hand).
- * This program's job: copy the entry's two files into the output dir
- * so the submission carries them — POST.json (the post's address) and
- * meme.png (the meme picture). Nothing about the post is judged from
- * what this program writes; the house reads the post itself.
- */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+// GTA 6 meme entry for make.fun (gta6-meme-x-01), v3.
+// The meme (meme.png) was composed in this session: the same Vice City
+// loading-screen scene as v2, with the title restyled in Pricedown, the
+// actual GTA logo font. This program only hands the entry's files to the
+// grader: it copies POST.json (the X post's address) and meme.png into the
+// output directory. The post itself is judged by the house reading it
+// from X, not by this file.
 
-const REPO_ROOT = resolve(import.meta.dirname ?? ".");
-const OUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const OUTPUT = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+const ROOT = new URL(".", import.meta.url).pathname;
 
 const FILES = ["POST.json", "meme.png"];
 
 function fail(message) {
-  console.error(`main.ts: ${message}`);
-  process.exit(1);
+  throw new Error("gta6-meme entry: " + message);
 }
 
 function main() {
-  mkdirSync(OUT_DIR, { recursive: true });
+  mkdirSync(OUTPUT, { recursive: true });
+
   for (const name of FILES) {
-    const src = join(REPO_ROOT, name);
-    if (!existsSync(src)) fail(`missing ${name} in ${REPO_ROOT}`);
-    const dst = join(OUT_DIR, name);
-    copyFileSync(src, dst);
-    const bytes = statSync(dst).size;
-    console.log(`wrote ${name} (${bytes} bytes) to ${dst}`);
+    const src = join(ROOT, name);
+    if (!existsSync(src)) fail(name + " is missing from the repository root");
+    copyFileSync(src, join(OUTPUT, name));
+    console.log("wrote " + name + " to " + join(OUTPUT, name));
   }
-  // Sanity: POST.json must parse and meme.png must be a PNG.
-  const post = JSON.parse(readFileSync(join(OUT_DIR, "POST.json"), "utf8"));
-  if (typeof post.url !== "string" || !post.url.startsWith("https://")) {
-    fail("POST.json has no https url");
-  }
-  const png = readFileSync(join(OUT_DIR, "meme.png"));
-  const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  if (!png.subarray(0, 8).equals(PNG_SIG)) fail("meme.png is not a PNG");
-  // Report the meme's pixel size from the PNG IHDR chunk (bytes 16-23).
+
+  // The meme must be a real PNG: check the 8-byte signature and read its
+  // pixel size from the IHDR chunk (bytes 16-23, big-endian uint32s).
+  const png = readFileSync(join(OUTPUT, "meme.png"));
+  const head = png.subarray(0, 8);
+  const magic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!head.equals(magic)) fail("meme.png is not a valid PNG file");
   const width = png.readUInt32BE(16);
   const height = png.readUInt32BE(20);
-  console.log(`meme.png is ${width}x${height}`);
-  console.log("main.ts: OK — POST.json and meme.png are in /output");
+  if (width !== 1024 || height !== 1024) {
+    fail("meme.png must be 1024x1024, got " + width + "x" + height);
+  }
+  console.log("meme.png: " + png.length + " bytes, " + width + "x" + height);
+
+  const post = JSON.parse(readFileSync(join(OUTPUT, "POST.json"), "utf8"));
+  if (typeof post.url !== "string" || !post.url.startsWith("https://")) {
+    fail("POST.json does not carry an https url");
+  }
+  console.log("entry files OK in " + OUTPUT);
 }
 
 main();
